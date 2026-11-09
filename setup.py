@@ -188,6 +188,15 @@ def ensure_hipified():
     )
     for header in CSRS_DIR.glob("ops/cuda/*.h"):
         shutil.copy(str(header), str(CSRS_DIR / "ops/hip"))
+    # hipify also emits *_hip.cpp duplicates of plain-CPU sources that are not
+    # needed (and break linking if compiled twice); the setup.py globs filter
+    # them out, and we delete the stale copies here to keep the tree clean.
+    for dupe in (
+        CSRS_DIR / "vision_stable_hip.cpp",
+        CSRS_DIR / "ops" / "cpu" / "box_iou_rotated_kernel_hip.cpp",
+        CSRS_DIR / "ops" / "cpu" / "roi_align_kernel_hip.cpp",
+    ):
+        dupe.unlink(missing_ok=True)
     _HIPIFIED = True
 
 
@@ -202,6 +211,17 @@ def make_C_stable_extension():
         + list(CSRS_DIR.glob("ops/quantized/cpu/*.cpp"))
     )
     mps_sources = list(CSRS_DIR.glob("ops/mps/*.mm"))
+
+    if IS_ROCM:
+        # The hipify pass in ensure_hipified() regenerates *_hip.cpp duplicates
+        # of plain-CPU sources that the globs above also pick up; linking both
+        # collides (e.g. double vision::cuda_version()). Drop the duplicates.
+        hipify_dupes = {
+            CSRS_DIR / "vision_stable_hip.cpp",
+            CSRS_DIR / "ops" / "cpu" / "box_iou_rotated_kernel_hip.cpp",
+            CSRS_DIR / "ops" / "cpu" / "roi_align_kernel_hip.cpp",
+        }
+        sources = [s for s in sources if s not in hipify_dupes]
 
     if IS_ROCM:
         cuda_sources = list(CSRS_DIR.glob("ops/hip/*.hip"))
